@@ -10,7 +10,9 @@ import {
   TrendingUp,
   AlertCircle,
   Plus,
-  ChevronRight
+  ChevronRight,
+  X,
+  Smartphone
 } from 'lucide-react';
 
 const Billing = () => {
@@ -18,11 +20,13 @@ const Billing = () => {
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [credits, setCredits] = useState(5);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
 
-  // Load user data from localStorage
+  // Load user data from memory
   useEffect(() => {
-    const savedPlan = localStorage.getItem('userPlan') || 'free';
-    const savedCredits = localStorage.getItem('userCredits') || '5';
+    const savedPlan = 'free';
+    const savedCredits = '5';
     setActivePlan(savedPlan);
     setCredits(parseInt(savedCredits));
   }, []);
@@ -47,8 +51,8 @@ const Billing = () => {
     {
       id: 'pro',
       name: 'Professional',
-      price: 29,
-      yearlyPrice: 290,
+      price: 2499,
+      yearlyPrice: 24990,
       credits: 50,
       features: [
         '50 Interview Credits/month',
@@ -65,8 +69,8 @@ const Billing = () => {
     {
       id: 'enterprise',
       name: 'Enterprise',
-      price: 99,
-      yearlyPrice: 990,
+      price: 8499,
+      yearlyPrice: 84990,
       credits: 999,
       features: [
         'Unlimited Interviews',
@@ -84,32 +88,53 @@ const Billing = () => {
   ];
 
   const paymentHistory = [
-    { id: 1, date: '2024-10-01', amount: 29, plan: 'Professional', status: 'paid' },
-    { id: 2, date: '2024-09-01', amount: 29, plan: 'Professional', status: 'paid' },
-    { id: 3, date: '2024-08-01', amount: 29, plan: 'Professional', status: 'paid' },
+    { id: 1, date: '2024-10-01', amount: 2499, plan: 'Professional', status: 'paid' },
+    { id: 2, date: '2024-09-01', amount: 2499, plan: 'Professional', status: 'paid' },
+    { id: 3, date: '2024-08-01', amount: 2499, plan: 'Professional', status: 'paid' },
   ];
 
   const creditPackages = [
-    { credits: 10, price: 9, bonus: 0 },
-    { credits: 25, price: 20, bonus: 5 },
-    { credits: 50, price: 35, bonus: 15 },
-    { credits: 100, price: 60, bonus: 40 }
+    { credits: 10, price: 749, bonus: 0 },
+    { credits: 25, price: 1699, bonus: 5 },
+    { credits: 50, price: 2999, bonus: 15 },
+    { credits: 100, price: 4999, bonus: 40 }
   ];
 
   const handleUpgrade = (planId) => {
-    localStorage.setItem('userPlan', planId);
     const plan = plans.find(p => p.id === planId);
-    localStorage.setItem('userCredits', plan.credits.toString());
-    setActivePlan(planId);
-    setCredits(plan.credits);
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+    if (plan.price > 0) {
+      setSelectedPayment({
+        type: 'plan',
+        plan: plan,
+        amount: getPrice(plan)
+      });
+      setShowPaymentModal(true);
+    } else {
+      setActivePlan(planId);
+      setCredits(plan.credits);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    }
   };
 
   const handleBuyCredits = (pkg) => {
-    const newCredits = credits + pkg.credits + pkg.bonus;
-    localStorage.setItem('userCredits', newCredits.toString());
-    setCredits(newCredits);
+    setSelectedPayment({
+      type: 'credits',
+      package: pkg,
+      amount: pkg.price
+    });
+    setShowPaymentModal(true);
+  };
+
+  const confirmPayment = () => {
+    if (selectedPayment.type === 'plan') {
+      setActivePlan(selectedPayment.plan.id);
+      setCredits(selectedPayment.plan.credits);
+    } else if (selectedPayment.type === 'credits') {
+      const newCredits = credits + selectedPayment.package.credits + selectedPayment.package.bonus;
+      setCredits(newCredits);
+    }
+    setShowPaymentModal(false);
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   };
@@ -220,7 +245,7 @@ const Billing = () => {
                   <h3 className="text-2xl font-bold text-gray-900">{plan.name}</h3>
                   <div className="mt-4 flex items-baseline">
                     <span className="text-5xl font-bold text-gray-900">
-                      ${getPrice(plan)}
+                      ₹{getPrice(plan).toLocaleString('en-IN')}
                     </span>
                     {plan.price > 0 && (
                       <span className="ml-2 text-gray-600">
@@ -286,7 +311,7 @@ const Billing = () => {
                   </p>
                   <p className="text-gray-600 text-sm mt-1">Credits</p>
                   <p className="text-2xl font-bold text-blue-500 mt-4">
-                    ${pkg.price}
+                    ₹{pkg.price.toLocaleString('en-IN')}
                   </p>
                   <button
                     onClick={() => handleBuyCredits(pkg)}
@@ -336,7 +361,7 @@ const Billing = () => {
                     </td>
                     <td className="py-4 px-4 text-sm text-gray-900">{payment.plan}</td>
                     <td className="py-4 px-4 text-sm font-semibold text-gray-900">
-                      ${payment.amount}
+                      ₹{payment.amount.toLocaleString('en-IN')}
                     </td>
                     <td className="py-4 px-4">
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
@@ -362,12 +387,12 @@ const Billing = () => {
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment Method</h2>
           <div className="border-2 border-gray-200 rounded-xl p-6 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
-                <CreditCard className="w-6 h-6 text-white" />
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                <Smartphone className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="font-semibold text-gray-900">•••• •••• •••• 4242</p>
-                <p className="text-sm text-gray-600">Expires 12/2025</p>
+                <p className="font-semibold text-gray-900">UPI Payment</p>
+                <p className="text-sm text-gray-600">PhonePe, Google Pay, Paytm</p>
               </div>
             </div>
             <button className="text-blue-500 hover:text-blue-600 font-medium flex items-center gap-2">
@@ -377,10 +402,76 @@ const Billing = () => {
           </div>
           <button className="mt-4 text-blue-500 hover:text-blue-700 font-medium flex items-center gap-2">
             <Plus className="w-4 h-4" />
-            Add New Payment Method
+            Add Card Payment Method
           </button>
         </div>
       </main>
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-8 relative animate-scale-up">
+            <button
+              onClick={() => setShowPaymentModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Smartphone className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Scan QR to Pay</h3>
+              <p className="text-gray-600">Pay with any UPI app</p>
+            </div>
+
+            <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl p-6 mb-6">
+              <div className="bg-white rounded-lg p-4 mb-4">
+                <img
+                  src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=merchant@upi&pn=InterviewAI&am={selectedPayment?.amount}&cu=INR"
+                  alt="UPI QR Code"
+                  className="w-full h-auto"
+                />
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold text-gray-900 mb-1">
+                  ₹{selectedPayment?.amount.toLocaleString('en-IN')}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {selectedPayment?.type === 'plan' 
+                    ? `${selectedPayment.plan.name} Plan - ${billingCycle === 'monthly' ? 'Monthly' : 'Yearly'}`
+                    : `${selectedPayment?.package.credits + selectedPayment?.package.bonus} Credits`
+                  }
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center justify-center gap-4 text-gray-600">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Google_Pay_Logo_%282020%29.svg/512px-Google_Pay_Logo_%282020%29.svg.png" alt="GPay" className="h-8" />
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Logo_of_PhonePe.svg/512px-Logo_of_PhonePe.svg.png" alt="PhonePe" className="h-8" />
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Paytm_Logo_%28standalone%29.svg/512px-Paytm_Logo_%28standalone%29.svg.png" alt="Paytm" className="h-8" />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={confirmPayment}
+                className="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition-colors"
+              >
+                I have completed the payment
+              </button>
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Success Notification */}
       {showSuccess && (
@@ -391,6 +482,35 @@ const Billing = () => {
           <span className="font-medium">Transaction successful!</span>
         </div>
       )}
+
+      <style>{`
+        @keyframes scale-up {
+          from {
+            opacity: 0;
+            transform: scale(0.9);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+        .animate-scale-up {
+          animation: scale-up 0.2s ease-out;
+        }
+        @keyframes slide-up {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-slide-up {
+          animation: slide-up 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 };
