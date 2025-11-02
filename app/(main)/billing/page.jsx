@@ -1,142 +1,213 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { 
-  CreditCard, 
-  Check, 
-  Zap, 
-  Download, 
-  Calendar,
-  TrendingUp,
-  AlertCircle,
-  Plus,
-  ChevronRight,
+import { useUser } from '@/app/provider';
+import { supabase } from '@/services/supabaseClient';
+import axios from 'axios';
+import { toast } from 'sonner';
+import {
+  Check,
+  Zap,
+  Download,
   X,
-  Smartphone
+  Smartphone,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 const Billing = () => {
-  const [activePlan, setActivePlan] = useState('free');
+  const { user } = useUser() || {};
   const [billingCycle, setBillingCycle] = useState('monthly');
-  const [credits, setCredits] = useState(5);
+  const [credits, setCredits] = useState(7);
+  const [activePlan, setActivePlan] = useState('free');
   const [showSuccess, setShowSuccess] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [plans, setPlans] = useState([]);
+  const [creditPackages, setCreditPackages] = useState([]);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [currentTransactionId, setCurrentTransactionId] = useState(null);
 
-  // Load user data from memory
   useEffect(() => {
-    const savedPlan = 'free';
-    const savedCredits = '5';
-    setActivePlan(savedPlan);
-    setCredits(parseInt(savedCredits));
-  }, []);
-
-  const plans = [
-    {
-      id: 'free',
-      name: 'Free',
-      price: 0,
-      yearlyPrice: 0,
-      credits: 5,
-      features: [
-        '5 Interview Credits',
-        'Basic AI Questions',
-        'Email Support',
-        'Standard Templates',
-        'Basic Analytics'
-      ],
-      color: 'gray',
-      popular: false
-    },
-    {
-      id: 'pro',
-      name: 'Professional',
-      price: 2499,
-      yearlyPrice: 24990,
-      credits: 50,
-      features: [
-        '50 Interview Credits/month',
-        'Advanced AI Questions',
-        'Priority Support',
-        'Custom Templates',
-        'Advanced Analytics',
-        'Resume Parsing',
-        'Team Collaboration'
-      ],
-      color: 'blue',
-      popular: true
-    },
-    {
-      id: 'enterprise',
-      name: 'Enterprise',
-      price: 8499,
-      yearlyPrice: 84990,
-      credits: 999,
-      features: [
-        'Unlimited Interviews',
-        'Premium AI Models',
-        '24/7 Priority Support',
-        'Custom Branding',
-        'Advanced Analytics Dashboard',
-        'API Access',
-        'Dedicated Account Manager',
-        'Custom Integrations'
-      ],
-      color: 'purple',
-      popular: false
+    if (user?.email) {
+      loadUserData();
+      loadPlans();
+      loadCreditPackages();
+      loadPaymentHistory();
     }
-  ];
+  }, [user?.email]);
 
-  const paymentHistory = [
-    { id: 1, date: '2024-10-01', amount: 2499, plan: 'Professional', status: 'paid' },
-    { id: 2, date: '2024-09-01', amount: 2499, plan: 'Professional', status: 'paid' },
-    { id: 3, date: '2024-08-01', amount: 2499, plan: 'Professional', status: 'paid' },
-  ];
+  const loadUserData = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('Users')
+        .select('credits, subscription_plan, subscription_status, subscription_end_date')
+        .eq('email', user.email)
+        .single();
 
-  const creditPackages = [
-    { credits: 10, price: 749, bonus: 0 },
-    { credits: 25, price: 1699, bonus: 5 },
-    { credits: 50, price: 2999, bonus: 15 },
-    { credits: 100, price: 4999, bonus: 40 }
-  ];
-
-  const handleUpgrade = (planId) => {
-    const plan = plans.find(p => p.id === planId);
-    if (plan.price > 0) {
-      setSelectedPayment({
-        type: 'plan',
-        plan: plan,
-        amount: getPrice(plan)
-      });
-      setShowPaymentModal(true);
-    } else {
-      setActivePlan(planId);
-      setCredits(plan.credits);
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
+      if (!error && data) {
+        setCredits(data.credits || 7);
+        setActivePlan(data.subscription_plan || 'free');
+      }
+    } catch (err) {
+      console.error('Error loading user data:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleBuyCredits = (pkg) => {
+  const loadPlans = async () => {
+    const { data, error } = await supabase
+      .from('SubscriptionPlans')
+      .select('*')
+      .eq('is_active', true)
+      .order('price_monthly', { ascending: true });
+
+    if (!error && data) {
+      setPlans(data.map(p => ({
+        id: p.plan_name,
+        name: p.display_name,
+        price: p.price_monthly,
+        yearlyPrice: p.price_yearly,
+        credits: p.credits_per_month,
+        features: p.features || [],
+        popular: p.plan_name === 'pro'
+      })));
+    }
+  };
+
+  const loadCreditPackages = async () => {
+    const { data, error } = await supabase
+      .from('CreditPackages')
+      .select('*')
+      .eq('is_active', true)
+      .order('credits', { ascending: true });
+
+    if (!error && data) {
+      setCreditPackages(data.map(p => ({
+        credits: p.credits,
+        bonus: p.bonus_credits,
+        price: p.price
+      })));
+    }
+  };
+
+  const loadPaymentHistory = async () => {
+    const { data, error } = await supabase
+      .from('Transactions')
+      .select('*')
+      .eq('user_email', user.email)
+      .eq('payment_status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (!error && data) {
+      setPaymentHistory(data.map(t => ({
+        id: t.id,
+        date: t.created_at,
+        amount: t.amount,
+        plan: t.plan_name || 'Credit Purchase',
+        status: 'paid'
+      })));
+    }
+  };
+
+  const handleUpgrade = async (planId) => {
+    const plan = plans.find(p => p.id === planId);
+    if (!plan || plan.price === 0) {
+      toast.error('Cannot upgrade to free plan');
+      return;
+    }
+
+    const amount = billingCycle === 'monthly' ? plan.price : plan.yearlyPrice;
+
+    setSelectedPayment({
+      type: 'subscription',
+      plan: plan,
+      amount: amount
+    });
+
+    await initiatePayment({
+      transactionType: 'subscription',
+      planName: planId,
+      billingCycle: billingCycle,
+      amount: amount
+    });
+  };
+
+  const handleBuyCredits = async (pkg) => {
     setSelectedPayment({
       type: 'credits',
       package: pkg,
       amount: pkg.price
     });
-    setShowPaymentModal(true);
+
+    await initiatePayment({
+      transactionType: 'credits',
+      creditsPackage: pkg,
+      amount: pkg.price
+    });
   };
 
-  const confirmPayment = () => {
-    if (selectedPayment.type === 'plan') {
-      setActivePlan(selectedPayment.plan.id);
-      setCredits(selectedPayment.plan.credits);
-    } else if (selectedPayment.type === 'credits') {
-      const newCredits = credits + selectedPayment.package.credits + selectedPayment.package.bonus;
-      setCredits(newCredits);
+  const initiatePayment = async (paymentData) => {
+    setProcessing(true);
+    try {
+      const response = await axios.post('/api/payments/initiate', {
+        userEmail: user.email,
+        ...paymentData
+      });
+
+      if (response.data.success) {
+        setCurrentTransactionId(response.data.transactionId);
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(response.data.upiString)}`;
+        setQrCodeUrl(qrUrl);
+        setShowPaymentModal(true);
+      } else {
+        toast.error('Failed to initiate payment');
+      }
+    } catch (error) {
+      console.error('Payment initiation error:', error);
+      toast.error('Failed to initiate payment');
+    } finally {
+      setProcessing(false);
     }
-    setShowPaymentModal(false);
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+  };
+
+  const confirmPayment = async () => {
+    if (!currentTransactionId) {
+      toast.error('No active transaction');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const response = await axios.post('/api/payments/confirm', {
+        transactionId: currentTransactionId,
+        userEmail: user.email,
+        paymentReference: `UPI-${Date.now()}`
+      });
+
+      if (response.data.success) {
+        toast.success('Payment confirmed successfully');
+        setShowSuccess(true);
+        setShowPaymentModal(false);
+        setTimeout(() => setShowSuccess(false), 3000);
+
+        await loadUserData();
+        await loadPaymentHistory();
+      } else {
+        toast.error('Payment confirmation failed');
+      }
+    } catch (error) {
+      console.error('Payment confirmation error:', error);
+      toast.error('Payment confirmation failed');
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const getPrice = (plan) => {
@@ -152,9 +223,16 @@ const Billing = () => {
     return 0;
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 pb-20">
-      {/* Header */}
       <header className="bg-white border-b border-gray-200 shadow-sm px-6 py-6">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-3xl font-bold text-gray-900">Billing & Subscription</h1>
@@ -163,13 +241,23 @@ const Billing = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-        {/* Current Plan Overview */}
+        {credits <= 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-6 flex items-start gap-3">
+            <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+            <div>
+              <h3 className="font-semibold text-red-900">No Credits Remaining</h3>
+              <p className="text-red-700 text-sm mt-1">
+                You have used all your credits. Please purchase a subscription plan or buy additional credits to continue using the application.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="bg-gradient-to-r from-blue-400 to-indigo-400 rounded-2xl p-8 text-white shadow-lg">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-blue-100 text-sm font-medium">CURRENT PLAN</p>
               <h2 className="text-3xl font-bold mt-1 capitalize">{activePlan}</h2>
-              <p className="text-blue-100 mt-2">Next billing date: November 15, 2025</p>
             </div>
             <div className="text-right">
               <div className="bg-white/20 rounded-lg px-4 py-2 backdrop-blur-sm">
@@ -178,17 +266,8 @@ const Billing = () => {
               </div>
             </div>
           </div>
-          <div className="mt-6 flex gap-3">
-            <button className="bg-white text-blue-600 px-6 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors">
-              Manage Plan
-            </button>
-            <button className="bg-white/20 backdrop-blur-sm text-white px-6 py-2 rounded-lg font-medium hover:bg-white/30 transition-colors">
-              View Invoice
-            </button>
-          </div>
         </div>
 
-        {/* Billing Cycle Toggle */}
         <div className="flex justify-center">
           <div className="bg-white rounded-full p-1 shadow-md inline-flex">
             <button
@@ -217,12 +296,11 @@ const Billing = () => {
           </div>
         </div>
 
-        {/* Subscription Plans */}
         <div className="grid md:grid-cols-3 gap-6">
           {plans.map((plan) => {
             const isActive = activePlan === plan.id;
             const savings = getSavings(plan);
-            
+
             return (
               <div
                 key={plan.id}
@@ -240,7 +318,7 @@ const Billing = () => {
                     Current Plan
                   </div>
                 )}
-                
+
                 <div className="p-6">
                   <h3 className="text-2xl font-bold text-gray-900">{plan.name}</h3>
                   <div className="mt-4 flex items-baseline">
@@ -258,7 +336,7 @@ const Billing = () => {
                       Save {savings}% with yearly billing
                     </p>
                   )}
-                  
+
                   <ul className="mt-6 space-y-3">
                     {plan.features.map((feature, idx) => (
                       <li key={idx} className="flex items-start gap-3">
@@ -270,7 +348,7 @@ const Billing = () => {
 
                   <button
                     onClick={() => handleUpgrade(plan.id)}
-                    disabled={isActive}
+                    disabled={isActive || processing || plan.price === 0}
                     className={`w-full mt-8 py-3 rounded-lg font-medium transition-all ${
                       isActive
                         ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -279,7 +357,7 @@ const Billing = () => {
                         : 'bg-gray-900 text-white hover:bg-gray-800'
                     }`}
                   >
-                    {isActive ? 'Current Plan' : 'Upgrade'}
+                    {processing ? 'Processing...' : isActive ? 'Current Plan' : 'Upgrade'}
                   </button>
                 </div>
               </div>
@@ -287,13 +365,12 @@ const Billing = () => {
           })}
         </div>
 
-        {/* Buy Credits */}
         <div className="bg-white rounded-2xl shadow-md p-8">
           <div className="flex items-center gap-3 mb-6">
             <Zap className="w-6 h-6 text-yellow-500" />
             <h2 className="text-2xl font-bold text-gray-900">Buy Additional Credits</h2>
           </div>
-          
+
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {creditPackages.map((pkg, idx) => (
               <div
@@ -315,9 +392,10 @@ const Billing = () => {
                   </p>
                   <button
                     onClick={() => handleBuyCredits(pkg)}
-                    className="w-full mt-4 bg-blue-400 text-white py-2 rounded-lg font-medium hover:bg-blue-500 transition-colors"
+                    disabled={processing}
+                    className="w-full mt-4 bg-blue-400 text-white py-2 rounded-lg font-medium hover:bg-blue-500 transition-colors disabled:opacity-50"
                   >
-                    Buy Now
+                    {processing ? 'Processing...' : 'Buy Now'}
                   </button>
                 </div>
               </div>
@@ -325,7 +403,6 @@ const Billing = () => {
           </div>
         </div>
 
-        {/* Payment History */}
         <div className="bg-white rounded-2xl shadow-md p-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment History</h2>
           <div className="overflow-x-auto">
@@ -343,9 +420,6 @@ const Billing = () => {
                   </th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">
                     Status
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">
-                    Invoice
                   </th>
                 </tr>
               </thead>
@@ -369,45 +443,21 @@ const Billing = () => {
                         Paid
                       </span>
                     </td>
-                    <td className="py-4 px-4 text-right">
-                      <button className="text-blue-500 hover:text-blue-600 flex items-center gap-1 ml-auto">
-                        <Download className="w-4 h-4" />
-                        Download
-                      </button>
-                    </td>
                   </tr>
                 ))}
+                {paymentHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-gray-500">
+                      No payment history yet
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
-
-        {/* Payment Method */}
-        <div className="bg-white rounded-2xl shadow-md p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment Method</h2>
-          <div className="border-2 border-gray-200 rounded-xl p-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
-                <Smartphone className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">UPI Payment</p>
-                <p className="text-sm text-gray-600">PhonePe, Google Pay, Paytm</p>
-              </div>
-            </div>
-            <button className="text-blue-500 hover:text-blue-600 font-medium flex items-center gap-2">
-              Update
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-          <button className="mt-4 text-blue-500 hover:text-blue-700 font-medium flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            Add Card Payment Method
-          </button>
-        </div>
       </main>
 
-      {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-8 relative animate-scale-up">
@@ -419,7 +469,7 @@ const Billing = () => {
             </button>
 
             <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Smartphone className="w-8 h-8 text-white" />
               </div>
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Scan QR to Pay</h3>
@@ -428,20 +478,22 @@ const Billing = () => {
 
             <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl p-6 mb-6">
               <div className="bg-white rounded-lg p-4 mb-4">
-                <img
-                  src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=merchant@upi&pn=InterviewAI&am={selectedPayment?.amount}&cu=INR"
-                  alt="UPI QR Code"
-                  className="w-full h-auto"
-                />
+                {qrCodeUrl && (
+                  <img
+                    src={qrCodeUrl}
+                    alt="UPI QR Code"
+                    className="w-full h-auto"
+                  />
+                )}
               </div>
               <div className="text-center">
                 <p className="text-3xl font-bold text-gray-900 mb-1">
                   ₹{selectedPayment?.amount.toLocaleString('en-IN')}
                 </p>
                 <p className="text-sm text-gray-600">
-                  {selectedPayment?.type === 'plan' 
-                    ? `${selectedPayment.plan.name} Plan - ${billingCycle === 'monthly' ? 'Monthly' : 'Yearly'}`
-                    : `${selectedPayment?.package.credits + selectedPayment?.package.bonus} Credits`
+                  {selectedPayment?.type === 'subscription'
+                    ? `${selectedPayment.plan.name} - ${billingCycle === 'monthly' ? 'Monthly' : 'Yearly'}`
+                    : `${selectedPayment?.package?.credits + selectedPayment?.package?.bonus} Credits`
                   }
                 </p>
               </div>
@@ -458,13 +510,16 @@ const Billing = () => {
             <div className="space-y-3">
               <button
                 onClick={confirmPayment}
-                className="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition-colors"
+                disabled={processing}
+                className="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
+                {processing && <Loader2 className="h-4 w-4 animate-spin" />}
                 I have completed the payment
               </button>
               <button
                 onClick={() => setShowPaymentModal(false)}
-                className="w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                disabled={processing}
+                className="w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -473,44 +528,14 @@ const Billing = () => {
         </div>
       )}
 
-      {/* Success Notification */}
       {showSuccess && (
-        <div className="fixed bottom-6 right-6 bg-green-600 text-white px-6 py-4 rounded-lg shadow-xl flex items-center gap-3 animate-slide-up">
+        <div className="fixed bottom-6 right-6 bg-green-600 text-white px-6 py-4 rounded-lg shadow-xl flex items-center gap-3 animate-slide-up z-50">
           <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center">
             <Check className="w-4 h-4 text-green-600" />
           </div>
-          <span className="font-medium">Transaction successful!</span>
+          <span className="font-medium">Transaction successful</span>
         </div>
       )}
-
-      <style>{`
-        @keyframes scale-up {
-          from {
-            opacity: 0;
-            transform: scale(0.9);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-        .animate-scale-up {
-          animation: scale-up 0.2s ease-out;
-        }
-        @keyframes slide-up {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
-        }
-      `}</style>
     </div>
   );
 };

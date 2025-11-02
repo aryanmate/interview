@@ -127,6 +127,25 @@ const QuestionList = ({ formData, onCreateLink }) => {
 
   const onFinish = async () => {
     setSaveLoading(true);
+
+    const { data: userData, error: userError } = await supabase
+      .from('Users')
+      .select('credits, subscription_status')
+      .eq('email', user?.email)
+      .single();
+
+    if (userError || !userData) {
+      toast('Unable to verify user credits');
+      setSaveLoading(false);
+      return;
+    }
+
+    if (userData.credits <= 0) {
+      toast('Insufficient credits. Please purchase credits or subscribe to continue.');
+      setSaveLoading(false);
+      return;
+    }
+
     const interview_id = uuidv4();
     const payload = {
       interview_id,
@@ -144,19 +163,37 @@ const QuestionList = ({ formData, onCreateLink }) => {
       .select('interview_id')
       .single();
 
-    //Update User Credit
-    const userUpdate = await supabase
-      .from('Users')
-      .update({credits: Number(user?.credits)-1 })
-      .eq('email',user?.email)
-      .select();
-
-    setSaveLoading(false);
-
     if (error) {
       toast(error.message || 'Failed to save interview');
+      setSaveLoading(false);
       return;
     }
+
+    const creditsBefore = userData.credits;
+    const creditsAfter = creditsBefore - 1;
+
+    const userUpdate = await supabase
+      .from('Users')
+      .update({
+        credits: creditsAfter,
+        credits_used: (userData.credits_used || 0) + 1
+      })
+      .eq('email', user?.email);
+
+    await supabase
+      .from('CreditHistory')
+      .insert([{
+        user_email: user?.email,
+        action: 'deducted',
+        credits_changed: 1,
+        credits_before: creditsBefore,
+        credits_after: creditsAfter,
+        reason: 'Interview created',
+        interview_id: interview_id,
+      }]);
+
+    setSaveLoading(false);
+    toast.success('Interview created successfully');
     onCreateLink(data?.interview_id || interview_id);
   }
   return (

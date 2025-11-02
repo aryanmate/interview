@@ -14,10 +14,24 @@ const Provider = ({ children }) => {
         const { data: subscription } = supabase.auth.onAuthStateChange(() => {
             CreateNewUser();
         });
+
+        const channel = supabase
+            .channel('user-changes')
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'Users',
+                filter: user?.email ? `email=eq.${user.email}` : undefined
+            }, (payload) => {
+                setUser(payload.new);
+            })
+            .subscribe();
+
         return () => {
             subscription?.subscription?.unsubscribe?.();
+            supabase.removeChannel(channel);
         }
-    }, []);
+    }, [user?.email]);
 
     const CreateNewUser = () => {
         supabase.auth.getUser().then(async ({ data, error }) => {
